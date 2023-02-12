@@ -1,0 +1,133 @@
+﻿var hub;
+
+var intranet = {
+    Tools: {
+        GetParameterByName: function(name) {
+            name = name.replace(/[\[]/, "\\[").replace(/[\]]/, "\\]");
+            var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"), results = regex.exec(location.search);
+            return results === null ? "" : decodeURIComponent(results[1].replace(/\+/g, " "));
+        }
+    },
+    Tabs: {
+        Activate: function (o) {
+            $('#nav-holder .nav-item').removeClass('current');
+            switch (o) {
+            case 0:
+            {
+                $('#nav-0').addClass('current');
+                break;
+            }
+            case 1:
+            {
+                intranet.Navigator.CurrentPath = '';
+                $('#nav-1').addClass('current');
+                break;
+            }
+            }
+            intranet.Navigator.Container = o;
+            intranet.Navigator.Navigate('');
+        }
+    },
+    Mode:0,
+    Navigator: {
+        CurrentPath: '',
+        Container: 0,
+        Navigate: function(d) {
+            switch (intranet.Mode) {
+            case 0:
+            {
+                hub.server.navigateDirectory(d).done(function(a) {
+                    intranet.Navigator.DisplayStructure(a);
+                });
+                break;
+            }
+            case 1:
+            {
+                $.ajax('Handlers/Navigate.ashx?d=' + d + '&c=' + intranet.Navigator.Container).done(function (a) {
+                    if (a !== null) {
+                        intranet.Navigator.DisplayStructure(a);
+                    }
+                });
+                break;
+            }
+            }
+        },
+        DisplayStructure:function(a) {
+            if (typeof (a) !== "undefined" && a.length > 0) {
+                var p = JSON.parse(a), h = [], b = 0, crumbs = [], pathLocation = '';
+                if (p !== null && typeof (p) !== "undefined") {
+                    crumbs.push('<code onclick="intranet.Navigator.Navigate(\'\')">..</code>');
+                    if (p.PathFromBase.indexOf('/') > 0) {
+                        var pathElements = p.PathFromBase.split('/'), active = '';
+                        if (pathElements[pathElements.length - 1].length === 0) {
+                            // trim last 
+                            pathElements.pop();
+                        }
+                        for (var eLength = 0; eLength < pathElements.length; eLength++) {
+                            if (pathElements[eLength].length > 0) {
+                                pathLocation += pathElements[eLength] + '/';
+                                if (eLength === pathElements.length - 1) {
+                                    active = 'class="current"';
+                                }
+                                crumbs.push('<code ' + active + ' onclick="intranet.Navigator.Navigate(\'' + pathLocation + '\')">' + pathElements[eLength] + '</code>');
+                            }
+                        }
+                    } else if (p.PathFromBase.length > 0) {
+                        crumbs.push('<code class="current" onclick="intranet.Navigator.Navigate(\'' + p.PathFromBase + '\')">' + p.PathFromBase + '</code>');
+                    }
+
+                    $('#path').html(crumbs.join(' '));
+
+                    if (typeof (p.Contents) !== "undefined" && p.Contents.length > 0) {
+                        for (b; b < p.Contents.length; b++) {
+                            h.push(p.Contents[b].Link);
+                        }
+                    }
+                    $('#file-data').html(h.join(' '));
+                    if (p.PathFromBase.length > 1) {
+                        intranet.Navigator.CurrentPath = p.PathFromBase;
+                    }
+                }
+            }
+        },
+        Download: function (filename) {
+            switch (intranet.Mode) {
+            case 0:
+            {
+                hub.server.requestFileDownload(filename, intranet.Navigator.CurrentPath).done(function(k) {
+                    window.location.assign('handlers/Download.ashx?key=' + k);
+                });
+                break;
+            }
+            case 1:
+            {
+                $.ajax('Handlers/RequestDownload.ashx?path=' + intranet.Navigator.CurrentPath + '&filename=' + filename + "&c=" + intranet.Navigator.Container).done(function (k) {
+                    if (k.length > 0) {
+                        window.location.assign('Handlers/Download.ashx?key=' + k);
+                    } else {
+                        alert('Sorry we were unable to deal with this request');
+                    }
+                });
+                break;
+            }
+            }
+        }
+    }
+}
+
+$(function () {
+    try {
+        if (typeof ($.connection) !== "undefined") {
+            hub = $.connection.assessment;
+            $.connection.hub.start().done(function () { });
+            hub.client.receieveLogEntry = function (d) {
+                var msg = JSON.parse(d);
+                $('#log').append(msg.Message + '<br/>');
+            }
+        } else {
+            intranet.Mode = 1;
+        }
+    } catch (e) {
+        intranet.Mode = 1;
+    }
+});
